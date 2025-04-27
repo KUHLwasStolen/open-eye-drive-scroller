@@ -28,6 +28,7 @@ esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-
 as5600 = "0.8.0"
 anyhow = "1.0.98"
 embedded-hal = "1.0.0"
+bytemuck = {version = "1.22.0", features = ["derive"]}
 
 [build-dependencies]
 embuild = "0.33"
