@@ -1,7 +1,7 @@
 use std::ptr::null_mut;
 
 use esp_idf_svc::{espnow::{EspNow, PeerInfo}, eventloop::EspSystemEventLoop, hal::{
-    delay::FreeRtos, i2c::{I2cConfig, I2cDriver}, peripherals::Peripherals, prelude::*, reset::restart, sys::wifi_interface_t_WIFI_IF_STA
+    delay::FreeRtos, i2c::{I2cConfig, I2cDriver}, peripherals::Peripherals, prelude::*, reset::restart, sys::wifi_interface_t_WIFI_IF_STA, gpio::PinDriver
 }, nvs::EspDefaultNvsPartition, wifi::{ClientConfiguration, Configuration, EspWifi}};
 
 use as5600::{status::Status, As5600};
@@ -16,8 +16,10 @@ const MAC_ADDR_RECEIVER: [u8; 6] = [0x58, 0xBF, 0x25, 0x9D, 0xF5, 0x70];
 #[derive(bytemuck::NoUninit, Clone, Copy)]
 #[repr(C)]
 struct ScrollData { // this has to perfectly match with the struct in the receiver's code!!
-    rotation: i8 // positive -> clockwise steps, negative -> counter-clockwise steps
+    rotation: i8, // positive -> clockwise steps, negative -> counter-clockwise steps
+    buttons: u8, // each bit one button
 }
+
 
 fn main() {
     esp_idf_svc::sys::link_patches();
@@ -117,6 +119,15 @@ fn main() {
     }
 
 
+    // ### Buttons setup ###
+    let pause_pin = PinDriver::input(peripherals.pins.gpio21).unwrap();
+    let next_song_pin = PinDriver::input(peripherals.pins.gpio22).unwrap();
+    let prev_song_pin = PinDriver::input(peripherals.pins.gpio32).unwrap();
+    let click_pin = PinDriver::input(peripherals.pins.gpio33).unwrap();
+    let right_pin = PinDriver::input(peripherals.pins.gpio34).unwrap();
+    let left_pin = PinDriver::input(peripherals.pins.gpio35).unwrap();
+
+
     // ### AS5600 setup ###
     let sda = peripherals.pins.gpio18;
     let scl = peripherals.pins.gpio16;
@@ -151,8 +162,12 @@ fn main() {
     let mut encoder_position_last: i8 = 0;
 
     let mut scroll_data = ScrollData {
-        rotation: 0
+        rotation: 0,
+        buttons: 0,
     };
+
+    let mut send = false;
+    let mut last_send: u8 = 0; // tracks how many loop iteration a send had to wait
 
     loop {
         // only evaluate if sensor can actually read properly
@@ -175,15 +190,8 @@ fn main() {
 
             // only send if something happened
             if difference != 0 {
-                scroll_data.rotation = difference;
-                let bytes = bytemuck::bytes_of(&scroll_data);
-
-                match esp_now.send(MAC_ADDR_RECEIVER, bytes) {
-                    Ok(_res) => {},
-                    Err(error) => {
-                        log::error!("ESP-NOW send error: {}", error);
-                    }
-                };
+                scroll_data.rotation += difference;
+                send = true;
 
                 log::info!("Rotated {} steps {}clockwise", difference.abs(), match difference > 0 {true => "", false => "counter-"});
             }
@@ -191,6 +199,60 @@ fn main() {
             encoder_position_last = encoder_position;
         }
 
-        FreeRtos::delay_ms(100u32);
+        // check buttons and set bits accordingly
+        if pause_pin.is_low() {
+            scroll_data.buttons &= 1u8;
+            send = true;
+        }
+
+        if next_song_pin.is_low() {
+            scroll_data.buttons &= 1u8 << 1;
+            send = true;
+        }
+
+        if prev_song_pin.is_low() {
+            scroll_data.buttons &= 1u8 << 2;
+            send = true;
+        }
+
+        if click_pin.is_low() {
+            scroll_data.buttons &= 1u8 << 3;
+            send = true;
+        }
+
+        if right_pin.is_low() {
+            scroll_data.buttons &= 1u8 << 4;
+            send = true;
+        }
+
+        if left_pin.is_low() {
+            scroll_data.buttons &= 1u8 << 5;
+            send = true;
+        }
+
+
+        if send && last_send >= 3 { // last_send to group events and avoid "bloat"
+            let bytes = bytemuck::bytes_of(&scroll_data);
+
+            match esp_now.send(MAC_ADDR_RECEIVER, bytes) {
+                Ok(_res) => {
+                    log::info!("Sent ESP-NOW message");
+                },
+                Err(error) => {
+                    log::error!("ESP-NOW send error: {}", error);
+                }
+            };
+
+            scroll_data.rotation = 0;
+            scroll_data.buttons = 0;
+            send = false;
+            last_send = 0;
+        }
+
+
+        FreeRtos::delay_ms(50u32);
+        if send { // only increment if there is actually something to send
+            last_send += 1;
+        }
     }
 }
