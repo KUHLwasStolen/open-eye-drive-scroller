@@ -201,32 +201,32 @@ fn main() {
 
         // check buttons and set bits accordingly
         if pause_pin.is_low() {
-            scroll_data.buttons &= 1u8;
+            scroll_data.buttons |= 1u8;
             send = true;
         }
 
         if next_song_pin.is_low() {
-            scroll_data.buttons &= 1u8 << 1;
+            scroll_data.buttons |= 1u8 << 1;
             send = true;
         }
 
         if prev_song_pin.is_low() {
-            scroll_data.buttons &= 1u8 << 2;
+            scroll_data.buttons |= 1u8 << 2;
             send = true;
         }
 
         if click_pin.is_low() {
-            scroll_data.buttons &= 1u8 << 3;
+            scroll_data.buttons |= 1u8 << 3;
             send = true;
         }
 
         if right_pin.is_low() {
-            scroll_data.buttons &= 1u8 << 4;
+            scroll_data.buttons |= 1u8 << 4;
             send = true;
         }
 
         if left_pin.is_low() {
-            scroll_data.buttons &= 1u8 << 5;
+            scroll_data.buttons |= 1u8 << 5;
             send = true;
         }
 
